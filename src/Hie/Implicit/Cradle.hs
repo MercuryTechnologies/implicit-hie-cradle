@@ -11,6 +11,7 @@ module Hie.Implicit.Cradle
   )
 where
 
+import Colog.Core.IO (logPrintStderr)
 import Control.Applicative ((<|>))
 import Control.Exception (handleJust)
 import Control.Monad
@@ -29,20 +30,20 @@ import System.FilePath
 import System.IO.Error (isPermissionError)
 
 -- | Given root\/foo\/bar.hs, load an implicit cradle
-loadImplicitHieCradle :: FilePath -> IO (Cradle a)
+loadImplicitHieCradle :: (Show a) => FilePath -> IO (Cradle a)
 loadImplicitHieCradle wfile = do
   let wdir = takeDirectory wfile
   cfg <- runMaybeT (implicitConfig wdir)
-  return $ case cfg of
-    Just bc -> getCradle absurd bc
-    Nothing -> defaultCradle wdir
+  case cfg of
+    Just bc -> getCradle logPrintStderr absurd bc
+    Nothing -> pure $ defaultCradle logPrintStderr wdir
 
 implicitConfig :: FilePath -> MaybeT IO (CradleConfig a, FilePath)
 implicitConfig fp = do
   (crdType, wdir) <- implicitConfig' fp
   return (CradleConfig [] crdType, wdir)
 
-implicitConfig' :: FilePath -> MaybeT IO (CradleType a, FilePath)
+implicitConfig' :: FilePath -> MaybeT IO (CradleTree a, FilePath)
 implicitConfig' fp =
   ( \wdir ->
       (Bios (Program $ wdir </> ".hie-bios") Nothing Nothing, wdir)
@@ -63,13 +64,13 @@ implicitConfig' fp =
     build cn cc gp p = do
       c <- cn <$> readPkgs cc gp p
       pure (c, p)
-    cabal :: FilePath -> MaybeT IO (CradleType a, FilePath)
+    cabal :: FilePath -> MaybeT IO (CradleTree a, FilePath)
     cabal = build (CabalMulti mempty) cabalComponent' cabalPkgs
-    stack :: FilePath -> MaybeT IO (CradleType a, FilePath)
+    stack :: FilePath -> MaybeT IO (CradleTree a, FilePath)
     stack = build (StackMulti mempty) stackComponent' stackYamlPkgs
     components f (Package n cs) = map (f n) cs
 
-    cabalComponent' n c = CabalType . Just <$> cabalComponent n c
+    cabalComponent' n c = (\m -> CabalType m Nothing) . Just <$> cabalComponent n c
     stackComponent' n c = flip StackType Nothing . Just <$> stackComponent n c
 
 ------------------------------------------------------------------------
